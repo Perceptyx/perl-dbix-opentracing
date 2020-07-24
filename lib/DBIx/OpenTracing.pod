@@ -6,6 +6,10 @@
 
 DBIx::OpenTracing - automatically create OpenTracing spans around DBI queries
 
+=head1 VERSION
+
+v0.0.1
+
 =head1 SYNOPSIS
 
     use DBI;
