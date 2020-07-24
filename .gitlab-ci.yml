@@ -1,0 +1,43 @@
+image: ubuntu:bionic
+
+stages:
+  - test
+  - build
+
+before_script:
+  - echo "Before script installation"
+  - apt update
+  - apt update
+    && apt install
+       cpanminus
+       curl
+       libdevel-cover-perl
+       libextutils-makemaker-cpanfile-perl
+       libjson-xs-perl
+       libmagic-dev
+       libtap-formatter-junit-perl
+       libtest-mockmodule-perl
+       libtest-most-perl
+       make
+       unzip
+    -y
+
+
+test:unit:
+  stage: test
+  script:
+    # test fail since 2020-01-01
+    - cpanm --notest Time::Zone
+    - cpanm --verbose --installdeps .
+    - OPENTRACING_INTERFACE=1 prove -MDevel::Cover -l -I lib -r
+  coverage: /Totals+.+s(d+.d+?)$/
+
+package:
+  stage: build
+  script:
+    - perl Makefile.PL
+      && make dist
+  artifacts:
+    paths:
+    - "*.tar.gz"
+    expire_in: 1 month
