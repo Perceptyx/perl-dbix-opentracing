@@ -45,17 +45,17 @@ L<OpenTracing conventions|https://opentracing.io/specification/conventions/>:
 
 =over 4
 
-=item db.type - always set to "sql"
+=item * db.type - always set to "sql"
 
-=item db.instance - the database name
+=item * db.instance - the database name
 
-=item db.user - the issue associated with the handle (not always available)
+=item * db.user - the user associated with the handle (not always available)
 
-=item db.statement - the query SQL
+=item * db.statement - the query SQL
 
-=item db.rows - the number of rows affected (not always available)
+=item * db.rows - the number of rows affected (not always available)
 
-=item error - will be set to true if the query failed
+=item * error - will be set to true if the query failed
 
 =back
 
