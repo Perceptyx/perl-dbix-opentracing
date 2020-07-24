@@ -14,7 +14,7 @@ my $mysqld = Test::mysqld->new(
   my_cnf => {
     'skip-networking' => '', # no TCP socket
   }
-) or die $Test::mysqld::errstr;
+) or do { no warnings 'once'; die $Test::mysqld::errstr };
 
 my $dsn    = $mysqld->dsn();
 my $dbname = $dsn =~ s/\ADBI:mysql://r;
