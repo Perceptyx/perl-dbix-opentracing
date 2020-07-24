@@ -11,6 +11,7 @@ before_script:
     && apt install
        cpanminus
        curl
+       libdbd-mysql-perl
        libdevel-cover-perl
        libextutils-makemaker-cpanfile-perl
        libjson-xs-perl
@@ -18,6 +19,7 @@ before_script:
        libtap-formatter-junit-perl
        libtest-mockmodule-perl
        libtest-most-perl
+       mysql-server
        make
        unzip
     -y
@@ -28,7 +30,7 @@ test:unit:
   script:
     # test fail since 2020-01-01
     - cpanm --notest Time::Zone
-    - cpanm --verbose --installdeps .
+    - cpanm --verbose --installdeps --with-recommends .
     - OPENTRACING_INTERFACE=1 prove -MDevel::Cover -l -I lib -r
   coverage: /Totals+.+s(d+.d+?)$/
 
