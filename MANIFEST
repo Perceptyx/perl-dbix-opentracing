@@ -1,0 +1,9 @@
+cpanfile
+CHANGES
+Makefile.PL
+MANIFEST
+lib/DBIx/OpenTracing.pm
+lib/DBIx/OpenTracing.pod
+t/sqlite.t
+t/mysql.t
+t/lib/Test/DBIx/OpenTracing.pm
