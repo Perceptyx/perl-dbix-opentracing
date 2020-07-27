@@ -7,14 +7,15 @@ use Test::OpenTracing::Integration;
 use lib 't/lib';
 use Test::DBIx::OpenTracing;
 
-eval { require Test::mysqld }
-    or plan skip_all => 'Test::mysqld is not installed';
-
-my $mysqld = Test::mysqld->new(
-  my_cnf => {
-    'skip-networking' => '', # no TCP socket
-  }
-) or do { no warnings 'once'; die $Test::mysqld::errstr };
+my $mysqld = eval {
+    no warnings 'once';
+    require Test::mysqld;
+    Test::mysqld->new(my_cnf => { 'skip-networking' => '' })
+        or die $Test::mysqld::errstr;
+} or do {
+    diag $@;
+    plan skip_all => 'mysqld is not available';
+};
 
 my $dsn    = $mysqld->dsn();
 my $dbname = $dsn =~ s/\ADBI:mysql://r;
