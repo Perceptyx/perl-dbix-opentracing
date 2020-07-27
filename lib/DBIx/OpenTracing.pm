@@ -10,7 +10,7 @@ use OpenTracing::GlobalTracer;
 use Scalar::Util qw[ blessed ];
 use Scope::Context;
 
-our $VERSION = 'v0.0.2';
+our $VERSION = 'v0.0.3';
 
 use constant TAGS_DEFAULT => ('db.type' => 'sql');
 
