@@ -1,4 +1,4 @@
-requires 'DBI';
+requires 'DBI', '1.635';
 requires 'OpenTracing::GlobalTracer';
 requires 'OpenTracing::Implementation';
 requires 'Syntax::Feature::Maybe';
