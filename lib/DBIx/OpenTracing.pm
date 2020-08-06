@@ -5,14 +5,16 @@ use feature qw[ state ];
 use syntax 'maybe';
 use B;
 use DBI;
+use DBIx::OpenTracing::Constants ':ALL';
 use List::Util qw[ sum ];
 use OpenTracing::GlobalTracer;
+use Package::Constants;
 use Scalar::Util qw[ blessed ];
 use Scope::Context;
 
 our $VERSION = 'v0.0.3';
 
-use constant TAGS_DEFAULT => ('db.type' => 'sql');
+use constant TAGS_DEFAULT => (DB_TAG_TYPE ,=> 'sql');
 
 use constant {
     _DBI_EXECUTE            => \&DBI::st::execute,
@@ -80,17 +82,17 @@ sub _tags_dbh {
     my ($dbh) = @_;
     return (
         maybe
-        'db.user'     => $dbh->{Username},
-        'db.instance' => $dbh->{Name},
+        DB_TAG_USER   ,=> $dbh->{Username},
+        DB_TAG_DBNAME ,=> $dbh->{Name},
     );
 }
 
 sub _tags_sth {
     my ($sth) = @_;
-    return ('db.statement' => $sth) if !blessed($sth) or !$sth->isa('DBI::st');
+    return (DB_TAG_SQL ,=> $sth) if !blessed($sth) or !$sth->isa('DBI::st');
     return (
         _tags_dbh($sth->{Database}),
-        'db.statement' => $sth->{Statement},
+        DB_TAG_SQL ,=> $sth->{Statement},
     );
 }
 
@@ -99,7 +101,47 @@ sub _tags_bind_values {
     return if not @$bind_ref;
 
     my $bind_str = join ',', map { "`$_`" } @$bind_ref;
-    return ('db.statement.bind' => $bind_str);
+    return (DB_TAG_BIND ,=> $bind_str);
+}
+
+{
+    my %hidden_tags;
+
+    sub _filter_tags {
+        my ($tags) = @_;
+        delete @$tags{ keys %hidden_tags };
+        return $tags;
+    }
+
+    sub hide_tags {
+        my ($class, @tags) = @_;;
+        return if not @tags;
+
+        undef @hidden_tags{@tags};
+        return;
+    }
+
+    sub show_tags {
+        my ($class, @tags) = @_;
+        return if not @tags;
+
+        delete @hidden_tags{@tags};
+        return;
+    }
+
+    sub hide_tags_temporarily {
+        my $class = shift;
+        my @tags  = grep { not exists $hidden_tags{$_} } @_;
+        $class->hide_tags(@tags);
+        Scope::Context->up->reap(sub { $class->show_tags(@tags) });
+    }
+
+    sub show_tags_temporarily {
+        my $class = shift;
+        my @tags = grep { exists $hidden_tags{$_} } @_;
+        $class->show_tags(@tags);
+        Scope::Context->up->reap(sub { $class->hide_tags(@tags) });
+    }
 }
 
 sub _execute {
@@ -109,7 +151,11 @@ sub _execute {
     my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
     my $scope = $tracer->start_active_span(
         'dbi_execute',
-        tags => { TAGS_DEFAULT, _tags_sth($sth), _tags_bind_values(\@bind) },
+        tags => _filter_tags({
+            TAGS_DEFAULT,
+            _tags_sth($sth),
+            _tags_bind_values(\@bind)
+        }),
     );
     my $span = $scope->get_span();
 
@@ -139,12 +185,12 @@ sub _gen_wrapper {
 
         my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
         my $scope = $tracer->start_active_span("dbi_$method_name",
-            tags => {
+            tags => _filter_tags({
                 TAGS_DEFAULT,
                 _tags_sth($statement),
                 _tags_dbh($dbh),
                 _tags_bind_values(\@bind),
-            },
+            }),
         );
         my $span = $scope->get_span();
 

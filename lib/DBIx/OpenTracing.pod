@@ -87,6 +87,24 @@ calls to L<enable> and L<enable_temprarily> will be ignored.
 Use this if you want to make sure absolutely nothing is traced within
 the scope, regardless of what any called functions are doing.
 
+=head2 hide_tags
+
+Will cause all the specified tags to be skipped when creating spans.
+This can be used to hide sensitive SQL statements.
+See L<DBIx::OpenTracing::Constants> for tag names.
+
+=head2 show_tags
+
+Will cause previously hidden tags to start appearing again.
+
+=head2 hide_tags_temporarily
+
+Same as L<hide_tags> but only works until the end of current scope.
+
+=head2 show_tags_temporarily
+
+Same as L<show_tags> but only works until the end of current scope.
+
 =head1 AUTHOR
  
 Szymon Nieznański <snieznanski@perceptyx.com>

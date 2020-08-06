@@ -4,6 +4,7 @@ use warnings;
 use syntax 'maybe';
 use Test::Most;
 use Test::OpenTracing::Integration;
+use DBIx::OpenTracing::Constants ':ALL';
 
 sub test_database {
     my %args        = @_;
@@ -418,16 +419,91 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     my ($dbh, $statement, $tag_base) = @_;
     my ($sql, @bind) = @$statement;
 
-    reset_spans();
-    $dbh->selectall_arrayref($sql, {}, @bind);
-    global_tracer_cmp_easy([{
+    my $run_query = sub { $dbh->selectall_arrayref($sql, {}, @bind) };
+
+    my $full = {
         tags => {
             %$tag_base,
             'db.statement'      => $sql,
             'db.statement.bind' => '`1`,`3`',
             'db.rows'           => 2,
         },
-    }], 'bind values tag');
+    };
+    my $no_sql = {
+        tags => {
+            %$tag_base,
+            'db.statement.bind' => '`1`,`3`',
+            'db.rows'           => 2,
+        },
+    };
+    my $no_sql_no_bind = {
+        tags => {
+            %$tag_base,
+            'db.rows' => 2,
+        },
+    };
+
+    reset_spans();
+    $run_query->();
+    global_tracer_cmp_easy([$full], 'bind values tag present');
+
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'statement tag hidden');
+
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql_no_bind], 'bind values tag hidden');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values tag shown after hiding');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values tag set to shown twice');
+
+    reset_spans();
+    {
+        DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_BIND);
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$no_sql_no_bind], 'bind values temporarily hidden');
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values back when out of scope');
+
+    reset_spans();
+    {
+        DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL);
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$full], 'sql statement back when shown temporarily');
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'sql statement hidden again when out of scope');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+    {
+        DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL);
+        { DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL) }
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$no_sql], 'sql statement hidden when temporarily disabled twice');
+    
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+    {
+        DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL);
+        { DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL) }
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$full], 'sql statement shown when temprarily enabled twice');
+
+    return;
 }
 
 1;

@@ -6,6 +6,7 @@ README.md
 LICENSE.md
 lib/DBIx/OpenTracing.pm
 lib/DBIx/OpenTracing.pod
+lib/DBIx/OpenTracing/Constants.pm
 t/sqlite.t
 t/mysql.t
 t/lib/Test/DBIx/OpenTracing.pm
