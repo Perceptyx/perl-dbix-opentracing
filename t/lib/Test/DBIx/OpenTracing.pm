@@ -23,6 +23,7 @@ sub test_database {
     error_detection_ok($dbh, $sql_invalid, \%tag_base);
     enable_disable_ok($dbh, $sql_simple);
     compatibility_ok($dbh, $statements);
+    tag_control_ok($dbh, $statements->{bind}, \%tag_base);
 
     return;
 }
@@ -313,6 +314,7 @@ sub compatibility_ok {
     my $sql_selectall = $statements->{select_all_multi};
     my $sql_selectrow = $statements->{select_all_single};
     my $sql_selectcol = $statements->{select_column_multi};
+    my ($sql_bind, @bind_vals) = @{ $statements->{bind} };
 
     my @cases = (
         {
@@ -380,6 +382,18 @@ sub compatibility_ok {
             expected_scalar => ['other thing', 'this is a thing'],
             expected_list   => [['other thing', 'this is a thing']],
         },
+        {
+            method          => 'selectall_arrayref',
+            args            => [ $sql_bind, { Slice => {} }, @bind_vals ],
+            expected_scalar => [
+                { id => 1, description => 'some thing' },
+                { id => 3, description => 'this is a thing' },
+            ],
+            expected_list => [[
+                { id => 1, description => 'some thing' },
+                { id => 3, description => 'this is a thing' },
+            ]],
+        },
     );
     foreach (@cases) {
         my ($method, $args) = @$_{qw[ method args ]};
@@ -400,5 +414,20 @@ sub compatibility_ok {
     }
 }
 
+sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) -- bind: 1, 3
+    my ($dbh, $statement, $tag_base) = @_;
+    my ($sql, @bind) = @$statement;
+
+    reset_spans();
+    $dbh->selectall_arrayref($sql, {}, @bind);
+    global_tracer_cmp_easy([{
+        tags => {
+            %$tag_base,
+            'db.statement'      => $sql,
+            'db.statement.bind' => '`1`,`3`',
+            'db.rows'           => 2,
+        },
+    }], 'bind values tag');
+}
 
 1;

@@ -94,13 +94,22 @@ sub _tags_sth {
     );
 }
 
+sub _tags_bind_values {
+    my ($bind_ref) = @_;
+    return if not @$bind_ref;
+
+    my $bind_str = join ',', map { "`$_`" } @$bind_ref;
+    return ('db.statement.bind' => $bind_str);
+}
+
 sub _execute {
     my $sth = shift;
+    my @bind = @_;
     
     my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
     my $scope = $tracer->start_active_span(
         'dbi_execute',
-        tags => { TAGS_DEFAULT, _tags_sth($sth) },
+        tags => { TAGS_DEFAULT, _tags_sth($sth), _tags_bind_values(\@bind) },
     );
     my $span = $scope->get_span();
 
@@ -126,7 +135,7 @@ sub _gen_wrapper {
 
     return sub {
         my $dbh = shift;
-        my ($statement) = @_;
+        my ($statement, $attr, @bind) = @_;
 
         my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
         my $scope = $tracer->start_active_span("dbi_$method_name",
@@ -134,6 +143,7 @@ sub _gen_wrapper {
                 TAGS_DEFAULT,
                 _tags_sth($statement),
                 _tags_dbh($dbh),
+                _tags_bind_values(\@bind),
             },
         );
         my $span = $scope->get_span();
