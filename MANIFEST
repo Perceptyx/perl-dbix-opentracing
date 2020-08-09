@@ -7,6 +7,9 @@ LICENSE.md
 lib/DBIx/OpenTracing.pm
 lib/DBIx/OpenTracing.pod
 lib/DBIx/OpenTracing/Constants.pm
-t/sqlite.t
+t/import-empty.t
+t/import-safe.t
+t/import-secure.t
 t/mysql.t
+t/sqlite.t
 t/lib/Test/DBIx/OpenTracing.pm

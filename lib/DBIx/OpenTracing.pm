@@ -4,6 +4,7 @@ use warnings;
 use feature qw[ state ];
 use syntax 'maybe';
 use B;
+use Carp qw[ croak ];
 use DBI;
 use DBIx::OpenTracing::Constants ':ALL';
 use List::Util qw[ sum ];
@@ -75,7 +76,34 @@ sub disable {
     return;
 }
 
-sub import   { enable() }
+sub import {
+    my ($class, $tag_mode) = @_;
+
+    enable();
+    return if not defined $tag_mode;
+
+    my @sensitive_tags = (
+        DB_TAG_SQL,
+        DB_TAG_BIND,
+        DB_TAG_USER,
+        DB_TAG_DBNAME,
+    );
+
+    if ($tag_mode eq '-empty') {
+        $class->hide_tags(DB_TAGS_ALL);
+    }
+    elsif ($tag_mode eq '-safe') {
+        $class->hide_tags(@sensitive_tags);
+    }
+    elsif ($tag_mode eq '-secure') {
+        $class->_disable_tags(@sensitive_tags);
+    }
+    else {
+        croak "Unknown mode: $tag_mode";
+    }
+    return;
+}
+
 sub unimport { disable() }
 
 sub _tags_dbh {
@@ -105,12 +133,17 @@ sub _tags_bind_values {
 }
 
 {
-    my %hidden_tags;
+    my (%hidden_tags, %disabled_tags);
 
     sub _filter_tags {
         my ($tags) = @_;
-        delete @$tags{ keys %hidden_tags };
+        delete @$tags{ keys %disabled_tags, keys %hidden_tags };
         return $tags;
+    }
+
+    sub _tag_enabled {
+        my ($tag) = @_;
+        return !!_filter_tags({ $tag => 1 })->{$tag};
     }
 
     sub hide_tags {
@@ -142,6 +175,31 @@ sub _tags_bind_values {
         $class->show_tags(@tags);
         Scope::Context->up->reap(sub { $class->hide_tags(@tags) });
     }
+
+    sub _disable_tags {
+        my ($class, @tags) = @_;
+        undef @disabled_tags{@tags};
+        return;
+    }
+
+    sub _enable_tags {
+        my ($class, @tags) = @_;
+        delete @disabled_tags{@tags};
+        return;
+    }
+
+    sub disable_tags {
+        my $class = shift;
+        my @tags  = grep { not exists $disabled_tags{$_} } @_;
+        $class->_disable_tags(@tags);
+        Scope::Context->up->reap(sub { $class->_enable_tags(@tags) });
+    }
+}
+
+sub _add_tag {
+    my ($span, $tag, $value) = @_;
+    return unless _tag_enabled($tag);
+    $span->add_tag($tag => $value);
 }
 
 sub _execute {
@@ -167,7 +225,7 @@ sub _execute {
         $span->add_tag(error => 1);
     }
     elsif ($sth->{NUM_OF_FIELDS} == 0) {    # non-select statement
-        $span->add_tag('db.rows' => $result + 0);
+        _add_tag($span, DB_TAG_ROWS,=> $result +0);
     }
     $scope->close();
 
@@ -212,7 +270,7 @@ sub _gen_wrapper {
         }
         elsif (defined $row_counter) {
             my $rows = sum(map { $row_counter->($_) } $wantarray ? @$result : $result);
-            $span->add_tag('db.rows' => $rows);
+            _add_tag($span, DB_TAG_ROWS ,=> $rows);
         }
         $scope->close();
 

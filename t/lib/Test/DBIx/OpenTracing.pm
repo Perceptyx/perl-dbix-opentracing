@@ -503,6 +503,33 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     }
     global_tracer_cmp_easy([$full], 'sql statement shown when temprarily enabled twice');
 
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAGS_ALL);
+    {
+        DBIx::OpenTracing->disable_tags(DB_TAG_SQL, DB_TAG_BIND);
+        $run_query->();
+
+        DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+        $run_query->();
+        DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+        $run_query->();
+        DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+        $run_query->();
+
+        { DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL); $run_query->(); }
+        $run_query->();
+        { DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL); $run_query->(); }
+        $run_query->();
+    }
+    global_tracer_cmp_deeply(
+        [ (superhashof($no_sql_no_bind)) x 8 ],
+        'disabled tags cannot be shown in any way'
+    );
+
+    reset_spans();
+    $run_query->();
+    global_tracer_cmp_easy([$full], 'tags back after disable is out of scope');
+
     return;
 }
 

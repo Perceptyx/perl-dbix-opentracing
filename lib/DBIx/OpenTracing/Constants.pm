@@ -12,6 +12,7 @@ use constant {
     DB_TAG_DBNAME => 'db.instance',
     DB_TAG_ROWS   => 'db.rows',
 };
+use constant DB_TAGS_ALL => map { no strict 'refs'; &$_ } Package::Constants->list(__PACKAGE__);
 
 our @EXPORT_OK   = Package::Constants->list(__PACKAGE__);
 our %EXPORT_TAGS = (ALL => \@EXPORT_OK);
@@ -60,6 +61,10 @@ The database name.
 =item DB_TAG_ROWS
 
 Number of rows returned by the query.
+
+=item DB_TAGS_ALL
+
+A list with all possible tag names.
 
 =back
 
