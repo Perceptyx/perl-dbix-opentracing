@@ -13,7 +13,7 @@ use Package::Constants;
 use Scalar::Util qw[ blessed ];
 use Scope::Context;
 
-our $VERSION = 'v0.0.3';
+our $VERSION = 'v0.0.4';
 
 use constant TAGS_DEFAULT => (DB_TAG_TYPE ,=> 'sql');
 
