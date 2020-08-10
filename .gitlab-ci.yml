@@ -12,6 +12,7 @@ before_script:
        cpanminus
        curl
        libdbd-mysql-perl
+       libdbd-pg-perl
        libdevel-cover-perl
        libextutils-makemaker-cpanfile-perl
        libjson-xs-perl
@@ -20,6 +21,8 @@ before_script:
        libtest-mockmodule-perl
        libtest-most-perl
        mysql-server
+       postgresql
+       postgresql-contrib
        make
        unzip
     -y
