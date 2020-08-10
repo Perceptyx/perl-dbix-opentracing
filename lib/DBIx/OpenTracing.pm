@@ -4,15 +4,18 @@ use warnings;
 use feature qw[ state ];
 use syntax 'maybe';
 use B;
+use Carp qw[ croak ];
 use DBI;
+use DBIx::OpenTracing::Constants ':ALL';
 use List::Util qw[ sum ];
 use OpenTracing::GlobalTracer;
+use Package::Constants;
 use Scalar::Util qw[ blessed ];
 use Scope::Context;
 
 our $VERSION = 'v0.0.3';
 
-use constant TAGS_DEFAULT => ('db.type' => 'sql');
+use constant TAGS_DEFAULT => (DB_TAG_TYPE ,=> 'sql');
 
 use constant {
     _DBI_EXECUTE            => \&DBI::st::execute,
@@ -73,34 +76,144 @@ sub disable {
     return;
 }
 
-sub import   { enable() }
+sub import {
+    my ($class, $tag_mode) = @_;
+
+    enable();
+    return if not defined $tag_mode;
+
+    my @sensitive_tags = (
+        DB_TAG_SQL,
+        DB_TAG_BIND,
+        DB_TAG_USER,
+        DB_TAG_DBNAME,
+    );
+
+    if ($tag_mode eq '-none') {
+        $class->hide_tags(DB_TAGS_ALL);
+    }
+    elsif ($tag_mode eq '-safe') {
+        $class->hide_tags(@sensitive_tags);
+    }
+    elsif ($tag_mode eq '-secure') {
+        $class->_disable_tags(@sensitive_tags);
+    }
+    else {
+        croak "Unknown mode: $tag_mode";
+    }
+    return;
+}
+
 sub unimport { disable() }
 
 sub _tags_dbh {
     my ($dbh) = @_;
     return (
         maybe
-        'db.user'     => $dbh->{Username},
-        'db.instance' => $dbh->{Name},
+        DB_TAG_USER   ,=> $dbh->{Username},
+        DB_TAG_DBNAME ,=> $dbh->{Name},
     );
 }
 
 sub _tags_sth {
     my ($sth) = @_;
-    return ('db.statement' => $sth) if !blessed($sth) or !$sth->isa('DBI::st');
+    return (DB_TAG_SQL ,=> $sth) if !blessed($sth) or !$sth->isa('DBI::st');
     return (
         _tags_dbh($sth->{Database}),
-        'db.statement' => $sth->{Statement},
+        DB_TAG_SQL ,=> $sth->{Statement},
     );
+}
+
+sub _tags_bind_values {
+    my ($bind_ref) = @_;
+    return if not @$bind_ref;
+
+    my $bind_str = join ',', map { "`$_`" } @$bind_ref;
+    return (DB_TAG_BIND ,=> $bind_str);
+}
+
+{
+    my (%hidden_tags, %disabled_tags);
+
+    sub _filter_tags {
+        my ($tags) = @_;
+        delete @$tags{ keys %disabled_tags, keys %hidden_tags };
+        return $tags;
+    }
+
+    sub _tag_enabled {
+        my ($tag) = @_;
+        return !!_filter_tags({ $tag => 1 })->{$tag};
+    }
+
+    sub hide_tags {
+        my ($class, @tags) = @_;;
+        return if not @tags;
+
+        undef @hidden_tags{@tags};
+        return;
+    }
+
+    sub show_tags {
+        my ($class, @tags) = @_;
+        return if not @tags;
+
+        delete @hidden_tags{@tags};
+        return;
+    }
+
+    sub hide_tags_temporarily {
+        my $class = shift;
+        my @tags  = grep { not exists $hidden_tags{$_} } @_;
+        $class->hide_tags(@tags);
+        Scope::Context->up->reap(sub { $class->show_tags(@tags) });
+    }
+
+    sub show_tags_temporarily {
+        my $class = shift;
+        my @tags = grep { exists $hidden_tags{$_} } @_;
+        $class->show_tags(@tags);
+        Scope::Context->up->reap(sub { $class->hide_tags(@tags) });
+    }
+
+    sub _disable_tags {
+        my ($class, @tags) = @_;
+        undef @disabled_tags{@tags};
+        return;
+    }
+
+    sub _enable_tags {
+        my ($class, @tags) = @_;
+        delete @disabled_tags{@tags};
+        return;
+    }
+
+    sub disable_tags {
+        my $class = shift;
+        my @tags  = grep { not exists $disabled_tags{$_} } @_;
+        $class->_disable_tags(@tags);
+        Scope::Context->up->reap(sub { $class->_enable_tags(@tags) });
+    }
+}
+
+sub _add_tag {
+    my ($span, $tag, $value) = @_;
+    return unless _tag_enabled($tag);
+    $span->add_tag($tag => $value);
 }
 
 sub _execute {
     my $sth = shift;
+    my @bind = @_;
     
     my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
     my $scope = $tracer->start_active_span(
         'dbi_execute',
-        tags => { TAGS_DEFAULT, _tags_sth($sth) },
+        tags => _filter_tags({
+            TAGS_DEFAULT,
+            _tags_sth($sth),
+            _tags_bind_values(\@bind)
+        }),
     );
     my $span = $scope->get_span();
 
@@ -112,7 +225,7 @@ sub _execute {
         $span->add_tag(error => 1);
     }
     elsif ($sth->{NUM_OF_FIELDS} == 0) {    # non-select statement
-        $span->add_tag('db.rows' => $result + 0);
+        _add_tag($span, DB_TAG_ROWS,=> $result +0);
     }
     $scope->close();
 
@@ -126,15 +239,16 @@ sub _gen_wrapper {
 
     return sub {
         my $dbh = shift;
-        my ($statement) = @_;
+        my ($statement, $attr, @bind) = @_;
 
         my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
         my $scope = $tracer->start_active_span("dbi_$method_name",
-            tags => {
+            tags => _filter_tags({
                 TAGS_DEFAULT,
                 _tags_sth($statement),
                 _tags_dbh($dbh),
-            },
+                _tags_bind_values(\@bind),
+            }),
         );
         my $span = $scope->get_span();
 
@@ -156,7 +270,7 @@ sub _gen_wrapper {
         }
         elsif (defined $row_counter) {
             my $rows = sum(map { $row_counter->($_) } $wantarray ? @$result : $result);
-            $span->add_tag('db.rows' => $rows);
+            _add_tag($span, DB_TAG_ROWS ,=> $rows);
         }
         $scope->close();
 

@@ -4,6 +4,7 @@ use warnings;
 use syntax 'maybe';
 use Test::Most;
 use Test::OpenTracing::Integration;
+use DBIx::OpenTracing::Constants ':ALL';
 
 sub test_database {
     my %args        = @_;
@@ -23,6 +24,7 @@ sub test_database {
     error_detection_ok($dbh, $sql_invalid, \%tag_base);
     enable_disable_ok($dbh, $sql_simple);
     compatibility_ok($dbh, $statements);
+    tag_control_ok($dbh, $statements->{bind}, \%tag_base);
 
     return;
 }
@@ -313,6 +315,7 @@ sub compatibility_ok {
     my $sql_selectall = $statements->{select_all_multi};
     my $sql_selectrow = $statements->{select_all_single};
     my $sql_selectcol = $statements->{select_column_multi};
+    my ($sql_bind, @bind_vals) = @{ $statements->{bind} };
 
     my @cases = (
         {
@@ -380,6 +383,18 @@ sub compatibility_ok {
             expected_scalar => ['other thing', 'this is a thing'],
             expected_list   => [['other thing', 'this is a thing']],
         },
+        {
+            method          => 'selectall_arrayref',
+            args            => [ $sql_bind, { Slice => {} }, @bind_vals ],
+            expected_scalar => [
+                { id => 1, description => 'some thing' },
+                { id => 3, description => 'this is a thing' },
+            ],
+            expected_list => [[
+                { id => 1, description => 'some thing' },
+                { id => 3, description => 'this is a thing' },
+            ]],
+        },
     );
     foreach (@cases) {
         my ($method, $args) = @$_{qw[ method args ]};
@@ -400,5 +415,122 @@ sub compatibility_ok {
     }
 }
 
+sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) -- bind: 1, 3
+    my ($dbh, $statement, $tag_base) = @_;
+    my ($sql, @bind) = @$statement;
+
+    my $run_query = sub { $dbh->selectall_arrayref($sql, {}, @bind) };
+
+    my $full = {
+        tags => {
+            %$tag_base,
+            'db.statement'      => $sql,
+            'db.statement.bind' => '`1`,`3`',
+            'db.rows'           => 2,
+        },
+    };
+    my $no_sql = {
+        tags => {
+            %$tag_base,
+            'db.statement.bind' => '`1`,`3`',
+            'db.rows'           => 2,
+        },
+    };
+    my $no_sql_no_bind = {
+        tags => {
+            %$tag_base,
+            'db.rows' => 2,
+        },
+    };
+
+    reset_spans();
+    $run_query->();
+    global_tracer_cmp_easy([$full], 'bind values tag present');
+
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'statement tag hidden');
+
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql_no_bind], 'bind values tag hidden');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values tag shown after hiding');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_BIND);
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values tag set to shown twice');
+
+    reset_spans();
+    {
+        DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_BIND);
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$no_sql_no_bind], 'bind values temporarily hidden');
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'bind values back when out of scope');
+
+    reset_spans();
+    {
+        DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL);
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$full], 'sql statement back when shown temporarily');
+    $run_query->();
+    global_tracer_cmp_easy([$no_sql], 'sql statement hidden again when out of scope');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+    {
+        DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL);
+        { DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL) }
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$no_sql], 'sql statement hidden when temporarily disabled twice');
+    
+    reset_spans();
+    DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+    {
+        DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL);
+        { DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL) }
+        $run_query->();
+    }
+    global_tracer_cmp_easy([$full], 'sql statement shown when temprarily enabled twice');
+
+    reset_spans();
+    DBIx::OpenTracing->show_tags(DB_TAGS_ALL);
+    {
+        DBIx::OpenTracing->disable_tags(DB_TAG_SQL, DB_TAG_BIND);
+        $run_query->();
+
+        DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+        $run_query->();
+        DBIx::OpenTracing->hide_tags(DB_TAG_SQL);
+        $run_query->();
+        DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+        $run_query->();
+
+        { DBIx::OpenTracing->show_tags_temporarily(DB_TAG_SQL); $run_query->(); }
+        $run_query->();
+        { DBIx::OpenTracing->hide_tags_temporarily(DB_TAG_SQL); $run_query->(); }
+        $run_query->();
+    }
+    global_tracer_cmp_deeply(
+        [ (superhashof($no_sql_no_bind)) x 8 ],
+        'disabled tags cannot be shown in any way'
+    );
+
+    reset_spans();
+    $run_query->();
+    global_tracer_cmp_easy([$full], 'tags back after disable is out of scope');
+
+    return;
+}
 
 1;
