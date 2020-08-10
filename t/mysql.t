@@ -17,13 +17,12 @@ my $mysqld = eval {
     plan skip_all => 'mysqld is not available';
 };
 
-my $dsn    = $mysqld->dsn();
-my $dbname = $dsn =~ s/\ADBI:mysql://r;
-my $dbh    = DBI->connect($dsn);
+my $dsn = $mysqld->dsn();
+my $dbh = DBI->connect($dsn);
 
 Test::DBIx::OpenTracing::test_database(
     dbh        => $dbh,
-    db_name    => $dbname,
+    db_name    => 'test',
     statements => {
         create => 'CREATE TABLE things (id INTEGER PRIMARY KEY, description VARCHAR(256))',
         insert => q[

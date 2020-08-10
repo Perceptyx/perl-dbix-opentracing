@@ -108,10 +108,14 @@ sub unimport { disable() }
 
 sub _tags_dbh {
     my ($dbh) = @_;
+
+    my $dbname = $dbh->{Name};
+    $dbname = $1 if $dbname =~ /dbname=([^;]+);/;
+
     return (
         maybe
         DB_TAG_USER   ,=> $dbh->{Username},
-        DB_TAG_DBNAME ,=> $dbh->{Name},
+        DB_TAG_DBNAME ,=> $dbname,
     );
 }
 
