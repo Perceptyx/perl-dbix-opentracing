@@ -12,4 +12,6 @@ on test => sub {
     recommends 'DBD::SQLite';
     recommends 'DBD::mysql';
     recommends 'Test::mysqld';
+    recommends 'DBD::Pg';
+    recommends 'Test::PostgreSQL';
 };
