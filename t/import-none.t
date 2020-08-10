@@ -2,7 +2,7 @@ use Test::Most;
 use OpenTracing::Implementation qw[ Test ];
 use Test::OpenTracing::Integration;
 
-use DBIx::OpenTracing -empty;
+use DBIx::OpenTracing '-none';    # Test::Most exports none()
 use DBIx::OpenTracing::Constants ':ALL';
 
 my $dbh = DBI->connect('dbi:Mem:');

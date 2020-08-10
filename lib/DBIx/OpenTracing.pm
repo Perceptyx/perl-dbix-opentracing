@@ -89,7 +89,7 @@ sub import {
         DB_TAG_DBNAME,
     );
 
-    if ($tag_mode eq '-empty') {
+    if ($tag_mode eq '-none') {
         $class->hide_tags(DB_TAGS_ALL);
     }
     elsif ($tag_mode eq '-safe') {
