@@ -10,6 +10,7 @@ lib/DBIx/OpenTracing/Constants.pm
 t/import-none.t
 t/import-safe.t
 t/import-secure.t
+t/mem.t
 t/mysql.t
 t/sqlite.t
 t/lib/Test/DBIx/OpenTracing.pm

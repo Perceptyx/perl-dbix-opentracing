@@ -1,8 +1,9 @@
-requires 'DBI', '1.635';
+requires 'DBI', '1.639';
 requires 'OpenTracing::GlobalTracer';
 requires 'OpenTracing::Implementation';
 requires 'Package::Constants';
 requires 'Scope::Context';
+requires 'SQL::Statement', '1.412';
 requires 'Syntax::Feature::Maybe';
 requires 'syntax';
 
