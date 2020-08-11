@@ -13,7 +13,7 @@ my $sql_insert = 'INSERT INTO test VALUES (?)';
 $dbh->do($sql_insert, {}, 3);
 
 global_tracer_cmp_easy([
-    { tags => { DB_TAG_TYPE ,=> 'sql', } },
+    { tags => { DB_TAG_TYPE ,=> 'sql', DB_TAG_ROWS ,=> 0 } },
     { tags => { DB_TAG_TYPE ,=> 'sql', DB_TAG_ROWS ,=> 1 } },
 ], 'no sensitive tags');
 

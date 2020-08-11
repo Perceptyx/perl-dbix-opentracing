@@ -10,7 +10,7 @@ use DBIx::OpenTracing::Constants ':ALL';
 use List::Util qw[ sum ];
 use OpenTracing::GlobalTracer;
 use Package::Constants;
-use Scalar::Util qw[ blessed ];
+use Scalar::Util qw[ blessed looks_like_number ];
 use Scope::Context;
 
 our $VERSION = 'v0.0.4';
@@ -20,38 +20,80 @@ use constant TAGS_DEFAULT => (DB_TAG_TYPE ,=> 'sql');
 use constant {
     _DBI_EXECUTE            => \&DBI::st::execute,
     _DBI_DO                 => \&DBI::db::do,
-    _DBI_SELECTALL_ARRAYREF => \&DBI::db::selectall_arrayref,
-    _DBI_SELECTROW_ARRAYREF => \&DBI::db::selectrow_arrayref,
     _DBI_SELECTROW_ARRAY    => \&DBI::db::selectrow_array,
+    _DBI_SELECTROW_ARRAYREF => \&DBI::db::selectrow_arrayref,
+    _DBI_SELECTROW_HASHREF  => \&DBI::db::selectrow_hashref,
+    _DBI_SELECTALL_ARRAYREF => \&DBI::db::selectall_arrayref,
+    _DBI_SELECTALL_ARRAY    => \&DBI::db::selectall_array,
+    _DBI_SELECTROW_ARRAY    => \&DBI::db::selectrow_array,
+    _DBI_SELECTALL_HASHREF  => \&DBI::db::selectall_hashref,
+    _DBI_SELECTCOL_ARRAYREF => \&DBI::db::selectcol_arrayref,
 };
-use constant _PP_MODE => !!$INC{'DBI/PurePerl.pm'};
-
 if (%DBIx::QueryLog::SKIP_PKG_MAP) {    # hide from DBIx::QueryLog's caller()
     $DBIx::QueryLog::SKIP_PKG_MAP{ (__PACKAGE__) } = 1;
 }
 
+our $is_currently_traced;    # lexicals can't be localized
 my ($is_enabled, $is_suspended);
 
-sub _numeric_result { 0 + $_[0] }
+sub _numeric_result { 0+ $_[0] }
+sub _sum_elements   { looks_like_number($_[0]) ? $_[0] : 1 }
 sub _array_size     { scalar @{ $_[0] } }
+sub _hash_key_count { scalar keys %{ $_[0] } }
+
+sub _sig_stmt_attr_bind     { return @_[ 0, 2 .. $#_ ] }
+sub _sig_stmt_key_attr_bind { return @_[ 0, 3 .. $#_ ] }
 
 sub enable {
     return if $is_enabled or $is_suspended;
 
-    state $do                 = _gen_wrapper(_DBI_DO, \&_numeric_result);
-    state $selectall_arrayref = _gen_wrapper(_DBI_SELECTALL_ARRAYREF, \&_array_size);
-    state $selectrow_arrayref = _gen_wrapper(_DBI_SELECTROW_ARRAYREF);
-    state $selectrow_array    = _gen_wrapper(_DBI_SELECTROW_ARRAY);
- 
     no warnings 'redefine';
     *DBI::st::execute = \&_execute;
 
-    if (not _PP_MODE) {    # everything goes through execute() in PP mode
-        *DBI::db::do                 = $do;
-        *DBI::db::selectall_arrayref = $selectall_arrayref;
-        *DBI::db::selectrow_arrayref = $selectrow_arrayref;
-        *DBI::db::selectrow_array    = $selectrow_array;
-    }
+    state $do = _gen_wrapper(_DBI_DO, {
+        signature   => \&_sig_stmt_attr_bind,
+        row_counter => \&_numeric_result,
+    });
+    *DBI::db::do = $do;
+
+    state $selectall_array = _gen_wrapper(_DBI_SELECTALL_ARRAY, {
+        signature   => \&_sig_stmt_attr_bind,
+        row_counter => \&_sum_elements
+    });
+    *DBI::db::selectall_array = $selectall_array;
+
+    state $selectall_arrayref = _gen_wrapper(_DBI_SELECTALL_ARRAYREF, {
+        signature   => \&_sig_stmt_attr_bind,
+        row_counter => \&_array_size
+    });
+    *DBI::db::selectall_arrayref = $selectall_arrayref;
+
+    state $selectcol_arrayref = _gen_wrapper(_DBI_SELECTCOL_ARRAYREF, {
+        signature   => \&_sig_stmt_attr_bind,
+        row_counter => \&_array_size,
+    });
+    *DBI::db::selectcol_arrayref = $selectcol_arrayref;
+
+    state $selectrow_array = _gen_wrapper(_DBI_SELECTROW_ARRAY, {
+        signature => \&_sig_stmt_attr_bind,
+    });
+    *DBI::db::selectrow_array = $selectrow_array;
+
+    state $selectrow_arrayref = _gen_wrapper(_DBI_SELECTROW_ARRAYREF, {
+        signature => \&_sig_stmt_attr_bind
+    });
+    *DBI::db::selectrow_arrayref = $selectrow_arrayref;
+
+    state $selectall_hashref = _gen_wrapper(_DBI_SELECTALL_HASHREF, {
+        signature   => \&_sig_stmt_key_attr_bind,
+        row_counter => \&_hash_key_count,
+    });
+    *DBI::db::selectall_hashref = $selectall_hashref;
+
+    state $selectrow_hashref = _gen_wrapper(_DBI_SELECTROW_HASHREF, {
+        signature => \&_sig_stmt_attr_bind,
+    });
+    *DBI::db::selectrow_hashref = $selectrow_hashref;
  
     $is_enabled = 1;
 
@@ -62,14 +104,15 @@ sub disable {
     return unless $is_enabled;
 
     no warnings 'redefine';
-    *DBI::st::execute = _DBI_EXECUTE;
-
-    if (not _PP_MODE) {
-        *DBI::db::do                 = _DBI_DO;
-        *DBI::db::selectall_arrayref = _DBI_SELECTALL_ARRAYREF;
-        *DBI::db::selectrow_arrayref = _DBI_SELECTROW_ARRAYREF;
-        *DBI::db::selectrow_array    = _DBI_SELECTROW_ARRAY;
-    }
+    *DBI::st::execute            = _DBI_EXECUTE;
+    *DBI::db::do                 = _DBI_DO;
+    *DBI::db::selectall_array    = _DBI_SELECTALL_ARRAY;
+    *DBI::db::selectall_arrayref = _DBI_SELECTALL_ARRAYREF;
+    *DBI::db::selectcol_arrayref = _DBI_SELECTCOL_ARRAYREF;
+    *DBI::db::selectrow_array    = _DBI_SELECTROW_ARRAY;
+    *DBI::db::selectrow_arrayref = _DBI_SELECTROW_ARRAYREF;
+    *DBI::db::selectall_hashref  = _DBI_SELECTALL_HASHREF;
+    *DBI::db::selectrow_hashref  = _DBI_SELECTROW_HASHREF;
  
     $is_enabled = 0;
 
@@ -207,11 +250,13 @@ sub _add_tag {
 }
 
 sub _execute {
-    my $sth = shift;
+    goto &{ (_DBI_EXECUTE) } if $is_currently_traced;
+    local $is_currently_traced = 1;
+
+    my $sth  = shift;
     my @bind = @_;
-    
     my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
-    my $scope = $tracer->start_active_span(
+    my $scope  = $tracer->start_active_span(
         'dbi_execute',
         tags => _filter_tags({
             TAGS_DEFAULT,
@@ -238,15 +283,21 @@ sub _execute {
 }
 
 sub _gen_wrapper {
-    my ($method, $row_counter) = @_;
-    my $method_name = B::svref_2object($method)->GV->NAME;
+    my ($method, $args) = @_;
+    my $row_counter   = $args->{row_counter};
+    my $sig_processor = $args->{signature};
+    my $method_name   = B::svref_2object($method)->GV->NAME;
 
     return sub {
+        goto $method if $is_currently_traced;
+        local $is_currently_traced = 1;
+
         my $dbh = shift;
-        my ($statement, $attr, @bind) = @_;
+        my ($statement, @bind) = $sig_processor->(@_);
 
         my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
-        my $scope = $tracer->start_active_span("dbi_$method_name",
+        my $scope  = $tracer->start_active_span(
+            "dbi_$method_name",
             tags => _filter_tags({
                 TAGS_DEFAULT,
                 _tags_sth($statement),
@@ -257,7 +308,7 @@ sub _gen_wrapper {
         my $span = $scope->get_span();
 
         my $result;
-        my $wantarray = wantarray;          # eval has its own
+        my $wantarray = wantarray;    # eval has its own
         my $failed    = !eval {
             if ($wantarray) {
                 $result = [ $dbh->$method(@_) ];
@@ -274,7 +325,7 @@ sub _gen_wrapper {
         }
         elsif (defined $row_counter) {
             my $rows = sum(map { $row_counter->($_) } $wantarray ? @$result : $result);
-            _add_tag($span, DB_TAG_ROWS ,=> $rows);
+            _add_tag($span, DB_TAG_ROWS,=> $rows);
         }
         $scope->close();
 
