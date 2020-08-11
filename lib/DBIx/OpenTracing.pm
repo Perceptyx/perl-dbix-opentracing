@@ -156,9 +156,8 @@ sub _tags_dbh {
     $dbname = $1 if $dbname =~ /dbname=([^;]+);/;
 
     return (
-        maybe
-        DB_TAG_USER   ,=> $dbh->{Username},
-        DB_TAG_DBNAME ,=> $dbname,
+        maybe DB_TAG_USER   ,=> $dbh->{Username},
+        maybe DB_TAG_DBNAME ,=> $dbname,
     );
 }
 
@@ -274,7 +273,7 @@ sub _execute {
         $span->add_tag(error => 1);
     }
     elsif ($sth->{NUM_OF_FIELDS} == 0) {    # non-select statement
-        _add_tag($span, DB_TAG_ROWS,=> $result +0);
+        _add_tag($span, DB_TAG_ROWS ,=> $result +0);
     }
     $scope->close();
 
