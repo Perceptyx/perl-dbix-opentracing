@@ -126,6 +126,7 @@ sub selectall_multi_ok {
         $dbh->$selectall($sql_select);
 
         global_tracer_cmp_deeply([superhashof({
+            operation_name => "dbi_$selectall",
             tags => {
                 %$tag_base,
                 'db.statement' => $sql_select,
@@ -137,7 +138,8 @@ sub selectall_multi_ok {
     reset_spans();
     $dbh->selectall_hashref($sql_select, 'id');
     global_tracer_cmp_deeply([superhashof({
-        tags => { %$tag_base, 'db.statement' => $sql_select },
+        operation_name => 'dbi_selectall_hashref',
+        tags           => { %$tag_base, 'db.statement' => $sql_select, 'db.rows' => 2 },
     })], 'selectall_hashref');
 
     return;
@@ -156,7 +158,8 @@ sub selectall_single_ok {
         reset_spans();
         $dbh->$selectrow($sql_select);
         global_tracer_cmp_easy([{
-            tags => {
+            operation_name => "dbi_$selectrow",
+            tags           => {
                 %$tag_base,
                 'db.statement' => $sql_select,
             },
@@ -173,9 +176,11 @@ sub selectcol_ok {
     reset_spans();
     $dbh->selectcol_arrayref($sql_select);
     global_tracer_cmp_easy([{
+        operation_name => 'dbi_selectcol_arrayref',
         tags => {
             %$tag_base,
             'db.statement' => $sql_select,
+            'db.rows'      => 2,
         },
     }], 'selectcol_arrayref');
 
@@ -202,6 +207,7 @@ sub error_detection_ok {
                 reset_spans();
                 $test->(sub { $dbh->$method($sql_invalid) }, "$method $type");
                 global_tracer_cmp_easy([{
+                    operation_name => "dbi_$method",
                     tags => {
                         %$tag_base,
                         'db.statement' => $sql_invalid,
