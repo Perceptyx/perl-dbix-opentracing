@@ -1,3 +1,8 @@
+v0.0.5 2020-08-11
+
+* Make sure only the top-level DBI call is represented by a span
+* Add tests for DBD::Mem and DBD::Pg
+
 v0.0.4 2020-08-10
 
 * Add the ability to hide specific tags
