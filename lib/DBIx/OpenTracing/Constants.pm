@@ -12,7 +12,11 @@ use constant {
     DB_TAG_DBNAME => 'db.instance',
     DB_TAG_ROWS   => 'db.rows',
 };
-use constant DB_TAGS_ALL => map { no strict 'refs'; &$_ } Package::Constants->list(__PACKAGE__);
+
+use constant DB_TAGS_ALL => (
+    DB_TAG_TYPE, DB_TAG_SQL,    DB_TAG_BIND,
+    DB_TAG_USER, DB_TAG_DBNAME, DB_TAG_ROWS,
+);
 
 our @EXPORT_OK   = Package::Constants->list(__PACKAGE__);
 our %EXPORT_TAGS = (ALL => \@EXPORT_OK);
