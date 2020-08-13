@@ -186,6 +186,18 @@ sub _tags_bind_values {
     return (DB_TAG_BIND ,=> $bind_str);
 }
 
+sub _tags_caller {
+    my ($call_package, $call_filename, $call_line) = caller(1);
+    my $call_sub = (caller(2))[3];
+    return (
+        maybe
+        DB_TAG_CALLER_SUB     ,=> $call_sub,
+        DB_TAG_CALLER_FILE    ,=> $call_filename,
+        DB_TAG_CALLER_LINE    ,=> $call_line,
+        DB_TAG_CALLER_PACKAGE ,=> $call_package,
+    );
+}
+
 {
     my (%hidden_tags, %disabled_tags);
 
@@ -284,6 +296,7 @@ sub _gen_wrapper {
                 _tags_sth($statement),
                 _tags_dbh($handle),
                 _tags_bind_values(\@bind),
+                _tags_caller(),
             }),
         );
         my $span = $scope->get_span();

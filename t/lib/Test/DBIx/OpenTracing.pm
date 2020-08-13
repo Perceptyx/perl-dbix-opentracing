@@ -1,10 +1,15 @@
 package Test::DBIx::OpenTracing;
 use strict;
 use warnings;
+use parent 'Exporter';
 use syntax 'maybe';
 use Test::Most;
 use Test::OpenTracing::Integration;
 use DBIx::OpenTracing::Constants ':ALL';
+
+our @EXPORT_OK = qw[ any_caller_tags test_database ];
+
+sub _sub_here { __PACKAGE__ . "::$_[0]" }
 
 sub test_database {
     my %args        = @_;
@@ -16,15 +21,18 @@ sub test_database {
     my $sql_simple  = $statements->{simple};
 
     my %tag_base = (
-              'db.type'     => 'sql',
-        maybe 'db.instance' => $db_name,
-        maybe 'db.user'     => $user,
+              'caller.file'    => __FILE__,
+              'caller.line'    => re(qr/\A\d+\z/),
+              'caller.package' => __PACKAGE__,
+              'db.type'        => 'sql',
+        maybe 'db.instance'    => $db_name,
+        maybe 'db.user'        => $user,
     );
-    span_generation_ok($dbh, $statements, \%tag_base);
-    error_detection_ok($dbh, $sql_invalid, \%tag_base);
+    span_generation_ok($dbh, $statements, {%tag_base});
+    error_detection_ok($dbh, $sql_invalid, {%tag_base});
     enable_disable_ok($dbh, $sql_simple);
     compatibility_ok($dbh, $statements);
-    tag_control_ok($dbh, $statements->{bind}, \%tag_base);
+    tag_control_ok($dbh, $statements->{bind}, {%tag_base});
 
     return;
 }
@@ -56,14 +64,15 @@ sub span_generation_ok {
 # CREATE TABLE things (id INTEGER PRIMARY KEY, description TEXT)
 sub create_ok {
     my ($dbh, $sql_create, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('create_ok');
 
     $dbh->do($sql_create);
     global_tracer_cmp_easy([{
         operation_name => 'dbi_do',
         tags           => {
             %$tag_base,
-            'db.statement' => $sql_create,
-            'db.rows'      => 0,
+            'db.statement'   => $sql_create,
+            'db.rows'        => 0,
         },
     }], 'do - table creation');
 
@@ -79,6 +88,7 @@ sub create_ok {
 #     (5, 'very cool thing')
 sub insert_ok {
     my ($dbh, $sql_insert, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('insert_ok');
 
     reset_spans();
     $dbh->do($sql_insert);
@@ -97,6 +107,7 @@ sub insert_ok {
 # DELETE FROM things WHERE id IN (4, 5)
 sub delete_ok {
     my ($dbh, $sql_delete, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('delete_ok');
 
     reset_spans();
     $dbh->do($sql_delete);
@@ -115,6 +126,7 @@ sub delete_ok {
 # SELECT * FROM things WHERE id IN (1, 3, 10)
 sub selectall_multi_ok {
     my ($dbh, $sql_select, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('selectall_multi_ok');
 
     my @selectall_methods = qw[
         selectall_arrayref
@@ -148,6 +160,7 @@ sub selectall_multi_ok {
 # SELECT * FROM things WHERE id = 2
 sub selectall_single_ok {
     my ($dbh, $sql_select, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('selectall_single_ok');
 
     my @selectrow_methods = qw[
         selectrow_array
@@ -172,6 +185,7 @@ sub selectall_single_ok {
 # SELECT description FROM things WHERE id IN (2, 3, 10)
 sub selectcol_ok {
     my ($dbh, $sql_select, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('selectcol_ok');
 
     reset_spans();
     $dbh->selectcol_arrayref($sql_select);
@@ -210,6 +224,7 @@ sub error_detection_ok {
                     operation_name => "dbi_$method",
                     tags => {
                         %$tag_base,
+                        'caller.subname' => _sub_here('__ANON__'),
                         'db.statement' => $sql_invalid,
                         error          => 1,
                     }
@@ -426,6 +441,7 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     my ($sql, @bind) = @$statement;
 
     my $run_query = sub { $dbh->selectall_arrayref($sql, {}, @bind) };
+    $tag_base->{'caller.subname'} = _sub_here('__ANON__');
 
     my $full = {
         tags => {
