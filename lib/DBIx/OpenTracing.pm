@@ -41,57 +41,64 @@ sub _sum_elements   { looks_like_number($_[0]) ? $_[0] : 1 }
 sub _array_size     { scalar @{ $_[0] } }
 sub _hash_key_count { scalar keys %{ $_[0] } }
 
-sub _sig_stmt_attr_bind     { return @_[ 0, 2 .. $#_ ] }
-sub _sig_stmt_key_attr_bind { return @_[ 0, 3 .. $#_ ] }
+# signature processors                statement, bind values
+sub _sig_dbh_stmt_attr_bind     { @_[     1,      3 .. $#_   ] }
+sub _sig_dbh_stmt_key_attr_bind { @_[     1,      4 .. $#_   ] }
+sub _sig_sth_bind               { @_[     0,      1 .. $#_   ] }
 
 sub enable {
     return if $is_enabled or $is_suspended;
 
     no warnings 'redefine';
-    *DBI::st::execute = \&_execute;
+    state $execute = _gen_wrapper(_DBI_EXECUTE, {
+        signature       => \&_sig_sth_bind,
+        row_counter     => \&_numeric_result,
+        count_condition => sub { $_[0]->{NUM_OF_FIELDS} == 0}, # non-select
+    });
+    *DBI::st::execute = $execute;
 
     state $do = _gen_wrapper(_DBI_DO, {
-        signature   => \&_sig_stmt_attr_bind,
+        signature   => \&_sig_dbh_stmt_attr_bind,
         row_counter => \&_numeric_result,
     });
     *DBI::db::do = $do;
 
     state $selectall_array = _gen_wrapper(_DBI_SELECTALL_ARRAY, {
-        signature   => \&_sig_stmt_attr_bind,
+        signature   => \&_sig_dbh_stmt_attr_bind,
         row_counter => \&_sum_elements
     });
     *DBI::db::selectall_array = $selectall_array;
 
     state $selectall_arrayref = _gen_wrapper(_DBI_SELECTALL_ARRAYREF, {
-        signature   => \&_sig_stmt_attr_bind,
+        signature   => \&_sig_dbh_stmt_attr_bind,
         row_counter => \&_array_size
     });
     *DBI::db::selectall_arrayref = $selectall_arrayref;
 
     state $selectcol_arrayref = _gen_wrapper(_DBI_SELECTCOL_ARRAYREF, {
-        signature   => \&_sig_stmt_attr_bind,
+        signature   => \&_sig_dbh_stmt_attr_bind,
         row_counter => \&_array_size,
     });
     *DBI::db::selectcol_arrayref = $selectcol_arrayref;
 
     state $selectrow_array = _gen_wrapper(_DBI_SELECTROW_ARRAY, {
-        signature => \&_sig_stmt_attr_bind,
+        signature => \&_sig_dbh_stmt_attr_bind,
     });
     *DBI::db::selectrow_array = $selectrow_array;
 
     state $selectrow_arrayref = _gen_wrapper(_DBI_SELECTROW_ARRAYREF, {
-        signature => \&_sig_stmt_attr_bind
+        signature => \&_sig_dbh_stmt_attr_bind
     });
     *DBI::db::selectrow_arrayref = $selectrow_arrayref;
 
     state $selectall_hashref = _gen_wrapper(_DBI_SELECTALL_HASHREF, {
-        signature   => \&_sig_stmt_key_attr_bind,
+        signature   => \&_sig_dbh_stmt_key_attr_bind,
         row_counter => \&_hash_key_count,
     });
     *DBI::db::selectall_hashref = $selectall_hashref;
 
     state $selectrow_hashref = _gen_wrapper(_DBI_SELECTROW_HASHREF, {
-        signature => \&_sig_stmt_attr_bind,
+        signature => \&_sig_dbh_stmt_attr_bind,
     });
     *DBI::db::selectrow_hashref = $selectrow_hashref;
  
@@ -151,6 +158,7 @@ sub unimport { disable() }
 
 sub _tags_dbh {
     my ($dbh) = @_;
+    return if !blessed($dbh) or !$dbh->isa('DBI::db');
 
     my $dbname = $dbh->{Name};
     $dbname = $1 if $dbname =~ /dbname=([^;]+);/;
@@ -176,6 +184,18 @@ sub _tags_bind_values {
 
     my $bind_str = join ',', map { "`$_`" } @$bind_ref;
     return (DB_TAG_BIND ,=> $bind_str);
+}
+
+sub _tags_caller {
+    my ($call_package, $call_filename, $call_line) = caller(1);
+    my $call_sub = (caller(2))[3];
+    return (
+        maybe
+        DB_TAG_CALLER_SUB     ,=> $call_sub,
+        DB_TAG_CALLER_FILE    ,=> $call_filename,
+        DB_TAG_CALLER_LINE    ,=> $call_line,
+        DB_TAG_CALLER_PACKAGE ,=> $call_package,
+    );
 }
 
 {
@@ -248,51 +268,25 @@ sub _add_tag {
     $span->add_tag($tag => $value);
 }
 
-sub _execute {
-    goto &{ (_DBI_EXECUTE) } if $is_currently_traced;
-    local $is_currently_traced = 1;
-
-    my $sth  = shift;
-    my @bind = @_;
-    my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
-    my $scope  = $tracer->start_active_span(
-        'dbi_execute',
-        tags => _filter_tags({
-            TAGS_DEFAULT,
-            _tags_sth($sth),
-            _tags_bind_values(\@bind)
-        }),
-    );
-    my $span = $scope->get_span();
-
-    my $result;
-    my $failed = !eval { $result = $sth->${ \_DBI_EXECUTE }(@_); 1 };
-    my $error  = $@;
-
-    if ($failed or not defined $result) {
-        $span->add_tag(error => 1);
-    }
-    elsif ($sth->{NUM_OF_FIELDS} == 0) {    # non-select statement
-        _add_tag($span, DB_TAG_ROWS ,=> $result +0);
-    }
-    $scope->close();
-
-    die $error if $failed;
-    return $result;
-}
-
 sub _gen_wrapper {
     my ($method, $args) = @_;
-    my $row_counter   = $args->{row_counter};
-    my $sig_processor = $args->{signature};
-    my $method_name   = B::svref_2object($method)->GV->NAME;
+    my $row_counter     = $args->{row_counter};
+    my $sig_processor   = $args->{signature};
+    my $count_condition = $args->{count_condition};
+    my $method_name     = B::svref_2object($method)->GV->NAME;
+
+    my $can_count_rows = sub {
+        defined $row_counter
+            and
+        !defined $count_condition || $count_condition->(@_)
+    };
 
     return sub {
         goto $method if $is_currently_traced;
         local $is_currently_traced = 1;
 
-        my $dbh = shift;
         my ($statement, @bind) = $sig_processor->(@_);
+        my $handle = shift;
 
         my $tracer = OpenTracing::GlobalTracer->get_global_tracer();
         my $scope  = $tracer->start_active_span(
@@ -300,8 +294,9 @@ sub _gen_wrapper {
             tags => _filter_tags({
                 TAGS_DEFAULT,
                 _tags_sth($statement),
-                _tags_dbh($dbh),
+                _tags_dbh($handle),
                 _tags_bind_values(\@bind),
+                _tags_caller(),
             }),
         );
         my $span = $scope->get_span();
@@ -310,19 +305,19 @@ sub _gen_wrapper {
         my $wantarray = wantarray;    # eval has its own
         my $failed    = !eval {
             if ($wantarray) {
-                $result = [ $dbh->$method(@_) ];
+                $result = [ $handle->$method(@_) ];
             }
             else {
-                $result = $dbh->$method(@_);
+                $result = $handle->$method(@_);
             }
             1;
         };
         my $error = $@;
 
-        if ($failed or defined $dbh->err) {
+        if ($failed or defined $handle->err) {
             $span->add_tag(error => 1);
         }
-        elsif (defined $row_counter) {
+        elsif ($can_count_rows->($handle)) {
             my $rows = sum(map { $row_counter->($_) } $wantarray ? @$result : $result);
             _add_tag($span, DB_TAG_ROWS,=> $rows);
         }
