@@ -430,16 +430,16 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     my $full = {
         tags => {
             %$tag_base,
-            'db.statement'      => $sql,
-            'db.statement.bind' => '`1`,`3`',
-            'db.rows'           => 2,
+            'db.statement'   => $sql,
+            'db.bind_values' => '`1`,`3`',
+            'db.rows'        => 2,
         },
     };
     my $no_sql = {
         tags => {
             %$tag_base,
-            'db.statement.bind' => '`1`,`3`',
-            'db.rows'           => 2,
+            'db.bind_values' => '`1`,`3`',
+            'db.rows'        => 2,
         },
     };
     my $no_sql_no_bind = {
