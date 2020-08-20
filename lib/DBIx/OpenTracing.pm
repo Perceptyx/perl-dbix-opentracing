@@ -211,7 +211,7 @@ sub _remove_sql_comments {    # TODO: support engine-specific syntax properly
 sub _gen_sql_summary {
     my ($sql) = @_;
 
-    # comments are removed, so the first accurence should be the keyword
+    # comments are removed, so the first occurence should be the keyword
     my ($type) = $sql =~ /\b(
         insert | select   | update
       | delete | truncate | show
