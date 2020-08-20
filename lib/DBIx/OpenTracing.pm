@@ -234,7 +234,7 @@ sub _tags_bind_values {
     my ($bind_ref) = @_;
     return if not @$bind_ref;
 
-    my $bind_str = join ',', map { "`$_`" } @$bind_ref;
+    my $bind_str = join ',', map { defined $_ ? "`$_`" : 'undef' } @$bind_ref;
     return (DB_TAG_BIND ,=> $bind_str);
 }
 
