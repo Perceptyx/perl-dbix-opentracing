@@ -19,6 +19,7 @@ sub test_database {
     my $statements  = $args{statements};
     my $sql_invalid = $statements->{invalid};
     my $sql_simple  = $statements->{simple};
+    my $sql_clear   = $statements->{clear};
 
     my %tag_base = (
               'caller.file'    => __FILE__,
@@ -34,6 +35,7 @@ sub test_database {
     compatibility_ok($dbh, $statements);
     tag_control_ok($dbh, $statements->{bind}, {%tag_base});
     comments_ok($dbh, $statements->{comments});
+    execute_ok($dbh, @$statements{qw[ clear insert select_all_multi ]}, {%tag_base});
 
     return;
 }
@@ -589,6 +591,46 @@ sub comments_ok {
         }
     };
     return;
+}
+
+sub execute_ok {
+    my ($dbh, $sql_clear, $sql_insert, $sql_select, $tag_base) = @_;
+    $tag_base->{'caller.subname'} = _sub_here('execute_ok');
+
+    reset_spans();
+
+    $dbh->prepare($sql_clear)->execute();
+    $dbh->prepare($sql_insert)->execute();
+    $dbh->prepare($sql_select)->execute();
+
+    global_tracer_cmp_easy([
+        {
+            operation_name => 'dbi_execute',
+            tags           => {
+                %$tag_base,
+                'db.statement'         => $sql_clear,
+                'db.statement_summary' => 'DELETE: things',
+                'db.rows'              => ignore(),
+            },
+        },
+        {
+            operation_name => 'dbi_execute',
+            tags           => {
+                %$tag_base,
+                'db.statement'         => $sql_insert,
+                'db.statement_summary' => 'INSERT: things',
+                'db.rows'              => 5
+            },
+        },
+        {
+            operation_name => 'dbi_execute',
+            tags           => {
+                %$tag_base,
+                'db.statement'         => $sql_select,
+                'db.statement_summary' => 'SELECT: things',
+            },
+        },
+    ], 'execute produces correct tags');
 }
 
 1;
