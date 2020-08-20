@@ -33,6 +33,7 @@ sub test_database {
     enable_disable_ok($dbh, $sql_simple);
     compatibility_ok($dbh, $statements);
     tag_control_ok($dbh, $statements->{bind}, {%tag_base});
+    comments_ok($dbh, $statements->{comments});
 
     return;
 }
@@ -71,8 +72,9 @@ sub create_ok {
         operation_name => 'dbi_do',
         tags           => {
             %$tag_base,
-            'db.statement'   => $sql_create,
-            'db.rows'        => 0,
+            'db.statement'         => $sql_create,
+            'db.statement_summary' => 'CREATE: things',
+            'db.rows'              => 0,
         },
     }], 'do - table creation');
 
@@ -94,10 +96,11 @@ sub insert_ok {
     $dbh->do($sql_insert);
     global_tracer_cmp_easy([{
         operation_name => 'dbi_do',
-        tags           => {
+        tags => {
             %$tag_base,
-            'db.statement' => $sql_insert,
-            'db.rows'      => 5,
+            'db.statement'         => $sql_insert,
+            'db.statement_summary' => 'INSERT: things',
+            'db.rows'              => 5,
         },
     }], 'do - insert');
 
@@ -113,10 +116,11 @@ sub delete_ok {
     $dbh->do($sql_delete);
     global_tracer_cmp_easy([{
         operation_name => 'dbi_do',
-        tags           => {
+        tags => {
             %$tag_base,
-            'db.statement' => $sql_delete,
-            'db.rows'      => 2,
+            'db.statement'         => $sql_delete,
+            'db.statement_summary' => 'DELETE: things',
+            'db.rows'              => 2,
         },
     }], 'do - delete');
 
@@ -141,8 +145,9 @@ sub selectall_multi_ok {
             operation_name => "dbi_$selectall",
             tags => {
                 %$tag_base,
-                'db.statement' => $sql_select,
-                'db.rows'      => 2,
+                'db.statement'         => $sql_select,
+                'db.statement_summary' => 'SELECT: things',
+                'db.rows'              => 2,
             },
         })], $selectall);
     }
@@ -151,7 +156,12 @@ sub selectall_multi_ok {
     $dbh->selectall_hashref($sql_select, 'id');
     global_tracer_cmp_deeply([superhashof({
         operation_name => 'dbi_selectall_hashref',
-        tags           => { %$tag_base, 'db.statement' => $sql_select, 'db.rows' => 2 },
+        tags => {
+            %$tag_base,
+            'db.statement'         => $sql_select,
+            'db.statement_summary' => 'SELECT: things',
+            'db.rows'              => 2
+        },
     })], 'selectall_hashref');
 
     return;
@@ -174,7 +184,8 @@ sub selectall_single_ok {
             operation_name => "dbi_$selectrow",
             tags           => {
                 %$tag_base,
-                'db.statement' => $sql_select,
+                'db.statement'         => $sql_select,
+                'db.statement_summary' => 'SELECT: things',
             },
         }], $selectrow);
     }
@@ -193,8 +204,9 @@ sub selectcol_ok {
         operation_name => 'dbi_selectcol_arrayref',
         tags => {
             %$tag_base,
-            'db.statement' => $sql_select,
-            'db.rows'      => 2,
+            'db.statement'         => $sql_select,
+            'db.statement_summary' => 'SELECT: things',
+            'db.rows'              => 2,
         },
     }], 'selectcol_arrayref');
 
@@ -225,9 +237,9 @@ sub error_detection_ok {
                     tags => {
                         %$tag_base,
                         'caller.subname' => _sub_here('__ANON__'),
-                        'db.statement' => $sql_invalid,
-                        error          => 1,
-                    }
+                        'db.statement'   => $sql_invalid,
+                        error            => 1,
+                    },
                 }], "$method produces a span with correct tags");
             }
         };
@@ -446,14 +458,16 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     my $full = {
         tags => {
             %$tag_base,
-            'db.statement'   => $sql,
-            'db.bind_values' => '`1`,`3`',
-            'db.rows'        => 2,
+            'db.statement'         => $sql,
+            'db.statement_summary' => 'SELECT: things',
+            'db.bind_values'       => '`1`,`3`',
+            'db.rows'              => 2,
         },
     };
     my $no_sql = {
         tags => {
             %$tag_base,
+            'db.statement_summary' => 'SELECT: things',
             'db.bind_values' => '`1`,`3`',
             'db.rows'        => 2,
         },
@@ -461,6 +475,7 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     my $no_sql_no_bind = {
         tags => {
             %$tag_base,
+            'db.statement_summary' => 'SELECT: things',
             'db.rows' => 2,
         },
     };
@@ -552,6 +567,27 @@ sub tag_control_ok {  # SELECT id, description FROM things WHERE id IN (?, ?) --
     $run_query->();
     global_tracer_cmp_easy([$full], 'tags back after disable is out of scope');
 
+    return;
+}
+
+sub comments_ok {
+    my ($dbh, $sql_sets) = @_;
+    return if not $sql_sets;
+    
+    DBIx::OpenTracing->show_tags(DB_TAG_SQL);
+    
+    subtest 'comment removal' => sub {
+        foreach (@$sql_sets) {
+            reset_spans();
+
+            my ($name, $original, $no_comments) = @$_;
+            $dbh->do($original);
+            
+            global_tracer_cmp_easy([{
+                tags => superhashof({ 'db.statement' ,=> $no_comments }),
+            }], $name);
+        }
+    };
     return;
 }
 

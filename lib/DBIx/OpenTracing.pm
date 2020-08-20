@@ -171,11 +171,59 @@ sub _tags_dbh {
 
 sub _tags_sth {
     my ($sth) = @_;
-    return (DB_TAG_SQL ,=> $sth) if !blessed($sth) or !$sth->isa('DBI::st');
-    return (
-        _tags_dbh($sth->{Database}),
-        DB_TAG_SQL ,=> $sth->{Statement},
-    );
+    my (%tags, $sql);
+    if (!blessed($sth) or !$sth->isa('DBI::st')) {
+        $sql = "$sth";
+    }
+    else {
+        %tags = _tags_dbh($sth->{Database});
+        $sql  = $sth->{Statement};
+    }
+    $sql = _remove_sql_comments($sql);
+
+    $tags{ (DB_TAG_SQL) } = $sql;
+
+    if (my $summary = _gen_sql_summary($sql)) {
+        $tags{ (DB_TAG_SQL_SUMMARY) } = $summary;
+    }
+
+    return %tags;
+}
+
+sub _remove_sql_comments {    # TODO: support engine-specific syntax properly
+    my ($sql) = @_;
+
+    $sql =~ s{
+        (?> # skip over strings and quoted table names
+            (['"`])            # opening quote
+            .*?
+            (?<!\\)(?:\\{2})*  # make sure the closing quote is not escaped
+            \1                 # closing quote
+        )? \K 
+        | \#.*?$           # hash until end of line
+        | --.*?$           # double-dash until end of line
+        | /\* (?s).*? \*/  # multi-line C-style comment
+    }{}gmx;
+
+    return $sql;
+}
+
+sub _gen_sql_summary {
+    my ($sql) = @_;
+
+    # comments are removed, so the first accurence should be the keyword
+    my ($type) = $sql =~ /\b(
+        insert | select   | update
+      | delete | truncate | show
+      | alter  | create   | drop
+    )/ix;
+    return if not $type;
+
+    my $table = '...';
+    if ($sql =~ m{(?:from|into|update|truncate|drop|alter|table)\s+(`?)(\w+)\1}i) {
+        $table = $2;
+    }
+    return uc($type) . ": $table";
 }
 
 sub _tags_bind_values {
