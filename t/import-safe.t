@@ -19,8 +19,8 @@ my $sql_insert = 'INSERT INTO test VALUES (?)';
 $dbh->do($sql_insert, {}, 3);
 
 global_tracer_cmp_easy([
-    { tags => { %caller_tags, DB_TAG_TYPE ,=> 'sql', DB_TAG_ROWS ,=> 0 } },
-    { tags => { %caller_tags, DB_TAG_TYPE ,=> 'sql', DB_TAG_ROWS ,=> 1 } },
+    { tags => { %caller_tags, DB_TAG_TYPE ,=> 'sql', DB_TAG_SQL_SUMMARY ,=> 'CREATE: test', DB_TAG_ROWS ,=> 0 } },
+    { tags => { %caller_tags, DB_TAG_TYPE ,=> 'sql', DB_TAG_SQL_SUMMARY ,=> 'INSERT: test', DB_TAG_ROWS ,=> 1 } },
 ], 'no sensitive tags');
 
 reset_spans();
@@ -36,6 +36,7 @@ global_tracer_cmp_easy([{
         DB_TAG_SQL    ,=> $sql_insert,
         DB_TAG_BIND   ,=> '`4`',
         DB_TAG_TYPE   ,=> 'sql',
+        DB_TAG_SQL_SUMMARY ,=> 'INSERT: test',
     }
 }], 'sensitive tags can be shown');
 
