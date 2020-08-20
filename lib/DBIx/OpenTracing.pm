@@ -53,7 +53,11 @@ sub enable {
     state $execute = _gen_wrapper(_DBI_EXECUTE, {
         signature       => \&_sig_sth_bind,
         row_counter     => \&_numeric_result,
-        count_condition => sub { $_[0]->{NUM_OF_FIELDS} == 0}, # non-select
+        count_condition => sub {
+            my ($sth) = @_;
+            my $fields = $sth->{NUM_OF_FIELDS};
+            return !defined $fields || $fields == 0;    # non-select
+        },
     });
     *DBI::st::execute = $execute;
 
