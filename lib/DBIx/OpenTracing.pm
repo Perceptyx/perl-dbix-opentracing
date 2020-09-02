@@ -7,7 +7,7 @@ use B;
 use Carp qw[ croak ];
 use DBI;
 use DBIx::OpenTracing::Constants ':ALL';
-use List::Util qw[ sum ];
+use List::Util qw[ sum0 ];
 use OpenTracing::GlobalTracer;
 use Package::Constants;
 use Scalar::Util qw[ blessed looks_like_number ];
@@ -370,7 +370,7 @@ sub _gen_wrapper {
             $span->add_tag(error => 1);
         }
         elsif ($can_count_rows->($handle)) {
-            my $rows = sum(map { $row_counter->($_) } $wantarray ? @$result : $result);
+            my $rows = sum0(map { $row_counter->($_) } $wantarray ? @$result : $result);
             _add_tag($span, DB_TAG_ROWS,=> $rows);
         }
         $scope->close();
