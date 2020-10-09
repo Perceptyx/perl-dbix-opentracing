@@ -14,7 +14,7 @@ use Package::Constants;
 use Scalar::Util qw[ blessed looks_like_number ];
 use Scope::Context;
 
-our $VERSION = 'v0.0.9';
+our $VERSION = 'v0.1.0';
 
 hide_package(__PACKAGE__);
 
