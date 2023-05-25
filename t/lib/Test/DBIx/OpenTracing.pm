@@ -29,8 +29,12 @@ sub test_database {
         maybe 'db.instance'    => $db_name,
         maybe 'db.user'        => $user,
     );
+    my %tag_errs = (
+              'error'           => 1,
+    );
+    
     span_generation_ok($dbh, $statements, {%tag_base});
-    error_detection_ok($dbh, $sql_invalid, {%tag_base});
+    error_detection_ok($dbh, $sql_invalid, {%tag_base}, {%tag_errs});
     enable_disable_ok($dbh, $sql_simple);
     compatibility_ok($dbh, $statements);
     tag_control_ok($dbh, $statements->{bind}, {%tag_base});
@@ -269,7 +273,7 @@ sub selectcol_ok {
 }
 
 sub error_detection_ok {
-    my ($dbh, $sql_invalid, $tag_base) = @_;
+    my ($dbh, $sql_invalid, $tag_base, $tag_errs) = @_;
 
     my @methods = qw(
         do
@@ -293,7 +297,7 @@ sub error_detection_ok {
                         %$tag_base,
                         'caller.subname' => _sub_here('__ANON__'),
                         'db.statement'   => $sql_invalid,
-                        error            => 1,
+						%$tag_errs,
                     },
                 }], "$method produces a span with correct tags");
             }
