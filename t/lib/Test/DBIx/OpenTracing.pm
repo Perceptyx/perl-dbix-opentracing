@@ -24,12 +24,12 @@ sub test_database {
     my $sql_errcode = $args{error_detection}->{err};
 
     my %tag_base = (
-              'caller.file'    => __FILE__,
-              'caller.line'    => re(qr/\A\d+\z/),
-              'caller.package' => __PACKAGE__,
-              'db.type'        => 'sql',
-        maybe 'db.instance'    => $db_name,
-        maybe 'db.user'        => $user,
+              'caller.file'     => __FILE__,
+              'caller.line'     => re(qr/\A\d+\z/),
+              'caller.package'  => __PACKAGE__,
+              'db.type'         => 'sql',
+        maybe 'db.instance'     => $db_name,
+        maybe 'db.user'         => $user,
     );
     my %tag_errs = (
               'error'           => 1,
@@ -301,7 +301,7 @@ sub error_detection_ok {
                         %$tag_base,
                         'caller.subname' => _sub_here('__ANON__'),
                         'db.statement'   => $sql_invalid,
-						%$tag_errs,
+                        %$tag_errs,
                     },
                 }], "$method produces a span with correct tags");
             }
