@@ -20,6 +20,8 @@ sub test_database {
     my $sql_invalid = $statements->{invalid};
     my $sql_simple  = $statements->{simple};
     my $sql_clear   = $statements->{clear};
+    my $sql_state   = $args{error_detection}->{sqlstate};
+    my $sql_errcode = $args{error_detection}->{err};
 
     my %tag_base = (
               'caller.file'    => __FILE__,
@@ -31,6 +33,8 @@ sub test_database {
     );
     my %tag_errs = (
               'error'           => 1,
+              'message'         => re(qr/${sql_state}/),
+              'error.kind'      => "SQLSTATE_${sql_state}",
     );
     
     span_generation_ok($dbh, $statements, {%tag_base});
